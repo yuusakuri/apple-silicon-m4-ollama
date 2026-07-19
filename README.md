@@ -11,8 +11,10 @@ Apple Silicon Mac に Ollama と Dolphin 系モデルを導入し、ローカル
 - Homebrew がなければ公式インストーラーから導入
 - Ollama を Homebrew Cask で導入
 - Ollama のローカル API が応答するまで待機
-- Dolphin モデルをダウンロードして対話を開始
-- `--model` でモデル変更、`--no-chat` でダウンロードまでの実行
+- Dolphin モデルをダウンロードし、`Modelfile` から `my-dolphin` を作成
+- 直接的に回答するカスタムシステムプロンプトで対話を開始
+- `--model` でベースモデル変更、`--base-only` でカスタム作成を省略
+- `--no-chat` でモデル作成まで実行
 
 ## 必要環境
 
@@ -30,7 +32,7 @@ chmod +x setup_ai.sh
 ./setup_ai.sh
 ```
 
-既定モデルは `dolphin3:8b` です。初回は約 4.9GB のモデルデータをダウンロードします。対話を終えるには `/bye` を入力します。
+既定のベースモデルは `dolphin3:8b` です。初回は約 4.9GB のモデルデータをダウンロードし、同じモデルデータを再利用する `my-dolphin` を作って起動します。対話を終えるには `/bye` を入力します。
 
 ## 使い方
 
@@ -41,8 +43,14 @@ chmod +x setup_ai.sh
 # モデル取得まで行い、チャットは開始しない
 ./setup_ai.sh --no-chat
 
-# 元の Dolphin Llama 3 8B を使う
+# 元の Dolphin Llama 3 8B をベースに my-dolphin を作る
 ./setup_ai.sh --model dolphin-llama3:8b
+
+# カスタムモデルに別名を付ける
+./setup_ai.sh --custom-name private-dolphin
+
+# Modelfile を使わずベースモデルをそのまま起動
+./setup_ai.sh --base-only
 
 # 32GB 以上の Mac で大きなモデルを試す
 ./setup_ai.sh --model dolphin-mixtral:8x7b
@@ -64,12 +72,28 @@ MODEL_NAME=dolphin3:8b ./setup_ai.sh
 
 実際のメモリ使用量はコンテキスト長などで増えます。メモリの目安は余裕を含めた実用上の推奨で、モデルファイルのサイズと同じではありません。
 
+## `Modelfile` で応答スタイルを調整する
+
+Dolphin のように強い指示追従性を意図したモデルでも、質問や会話履歴によっては拒否的な応答を返します。生成は確率的であり、ファインチューニング、プロンプトテンプレート、システムメッセージなど複数の要素が結果に影響するためです。
+
+このリポジトリの [`Modelfile`](Modelfile) は、回答を直接的・具体的にし、不必要な説教や定型的な前置きを避けるよう指示します。`setup_ai.sh` は選択したベースモデルに `FROM` を自動で合わせ、`my-dolphin` を作ります。ベースのモデルデータを再利用するため、同じ重みをもう一度ダウンロードする必要はありません。
+
+手動で作成する場合は次のとおりです。
+
+```bash
+ollama pull dolphin3:8b
+ollama create my-dolphin -f Modelfile
+ollama run my-dolphin
+```
+
+`Modelfile` の `SYSTEM` はモデルに渡すシステムメッセージであり、「絶対的なルール」ではありません。拒否を完全に消す保証はなく、`SYSTEM "."` のように内容を空同然にしても同様です。期待する口調や応答例を具体的に書き、実際の用途で評価してください。
+
 ## 手動実行
 
 セットアップ済みなら次のコマンドだけで起動できます。
 
 ```bash
-ollama run dolphin3:8b
+ollama run my-dolphin
 ```
 
 Ollama の API は標準ではローカルの `http://127.0.0.1:11434` で利用できます。
@@ -77,7 +101,7 @@ Ollama の API は標準ではローカルの `http://127.0.0.1:11434` で利用
 ```bash
 curl http://127.0.0.1:11434/api/chat \
   -d '{
-    "model": "dolphin3:8b",
+    "model": "my-dolphin",
     "messages": [{"role": "user", "content": "こんにちは"}],
     "stream": false
   }'
@@ -114,6 +138,7 @@ shellcheck setup_ai.sh
 ## 参考資料
 
 - [Ollama: macOS](https://docs.ollama.com/macos)
+- [Ollama: Modelfile reference](https://docs.ollama.com/modelfile)
 - [Ollama: dolphin3](https://ollama.com/library/dolphin3)
 - [Ollama: dolphin-llama3](https://ollama.com/library/dolphin-llama3)
 - [Ollama: dolphin-mixtral](https://ollama.com/library/dolphin-mixtral)

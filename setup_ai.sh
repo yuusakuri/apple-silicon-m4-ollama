@@ -4,9 +4,14 @@ set -Eeuo pipefail
 
 readonly DEFAULT_MODEL="dolphin3:8b"
 readonly OLLAMA_URL="http://127.0.0.1:11434"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+readonly SCRIPT_DIR
 
 MODEL_NAME="${MODEL_NAME:-${DEFAULT_MODEL}}"
+CUSTOM_MODEL_NAME="${CUSTOM_MODEL_NAME:-my-dolphin}"
 START_CHAT=true
+CREATE_CUSTOM_MODEL=true
+ACTIVE_MODEL_NAME=""
 OLLAMA_BIN=""
 TEMP_DIR=""
 
@@ -35,20 +40,25 @@ print_help() {
     cat <<'HELP'
 Usage: ./setup_ai.sh [options]
 
-Install Ollama on an Apple Silicon Mac, download a Dolphin model, and start chat.
+Install Ollama, download Dolphin, create a direct-response custom model, and chat.
 
 Options:
-  --model NAME   Ollama model to use (default: dolphin3:8b)
-  --no-chat      Install, start Ollama, and pull the model without opening chat
-  -h, --help     Show this help
+  --model NAME        Base Ollama model (default: dolphin3:8b)
+  --custom-name NAME  Custom model name (default: my-dolphin)
+  --base-only         Skip Modelfile customization and run the base model
+  --no-chat           Complete setup without opening interactive chat
+  -h, --help          Show this help
 
 Environment:
-  MODEL_NAME     Alternative way to select the model
+  MODEL_NAME          Alternative way to select the base model
+  CUSTOM_MODEL_NAME   Alternative way to name the custom model
 
 Examples:
   ./setup_ai.sh
   ./setup_ai.sh --no-chat
   ./setup_ai.sh --model dolphin-llama3:8b
+  ./setup_ai.sh --custom-name private-dolphin
+  ./setup_ai.sh --base-only
   ./setup_ai.sh --model dolphin-mixtral:8x7b
 HELP
 }
@@ -60,6 +70,15 @@ parse_args() {
                 (($# >= 2)) || fail "--model requires a model name."
                 MODEL_NAME="$2"
                 shift 2
+                ;;
+            --custom-name)
+                (($# >= 2)) || fail "--custom-name requires a model name."
+                CUSTOM_MODEL_NAME="$2"
+                shift 2
+                ;;
+            --base-only)
+                CREATE_CUSTOM_MODEL=false
+                shift
                 ;;
             --no-chat)
                 START_CHAT=false
@@ -74,10 +93,15 @@ parse_args() {
                 ;;
         esac
     done
+
+    [[ "${MODEL_NAME}" =~ ^[[:alnum:]_.:/-]+$ ]] || fail \
+        "Invalid base model name: ${MODEL_NAME}"
+    [[ "${CUSTOM_MODEL_NAME}" =~ ^[[:alnum:]_.:/-]+$ ]] || fail \
+        "Invalid custom model name: ${CUSTOM_MODEL_NAME}"
 }
 
 check_platform() {
-    log "[1/5] Checking this Mac"
+    log "[1/6] Checking this Mac"
 
     [[ "$(uname -s)" == "Darwin" ]] || fail "This script supports macOS only."
     [[ "$(uname -m)" == "arm64" ]] || fail "An Apple Silicon Mac is required."
@@ -91,7 +115,7 @@ check_platform() {
 }
 
 setup_package_manager() {
-    log "[2/5] Checking Homebrew"
+    log "[2/6] Checking Homebrew"
 
     if command -v brew >/dev/null 2>&1; then
         success "Homebrew is already installed."
@@ -126,7 +150,7 @@ resolve_ollama_binary() {
 }
 
 install_inference_engine() {
-    log "[3/5] Checking Ollama"
+    log "[3/6] Checking Ollama"
 
     if command -v ollama >/dev/null 2>&1 || \
         [[ -x /Applications/Ollama.app/Contents/Resources/ollama ]]; then
@@ -144,7 +168,7 @@ ollama_is_ready() {
 }
 
 start_llm_service() {
-    log "[4/5] Starting the local Ollama service"
+    log "[4/6] Starting the local Ollama service"
 
     if ollama_is_ready; then
         success "Ollama is already listening on ${OLLAMA_URL}."
@@ -154,8 +178,7 @@ start_llm_service() {
     open -a Ollama
     printf '%s' "Waiting for Ollama"
 
-    local attempt
-    for attempt in {1..60}; do
+    for _ in {1..60}; do
         if ollama_is_ready; then
             printf '\n'
             success "Ollama is ready on ${OLLAMA_URL}."
@@ -170,19 +193,41 @@ start_llm_service() {
 }
 
 pull_model() {
-    log "[5/5] Downloading model: ${MODEL_NAME}"
+    log "[5/6] Downloading base model: ${MODEL_NAME}"
     printf '%s\n' "The first download requires internet access. Model inference is local after download."
     "${OLLAMA_BIN}" pull "${MODEL_NAME}"
     success "Model is ready: ${MODEL_NAME}"
 }
 
+create_custom_model() {
+    log "[6/6] Creating custom model: ${CUSTOM_MODEL_NAME}"
+
+    [[ -f "${SCRIPT_DIR}/Modelfile" ]] || fail \
+        "Modelfile was not found next to setup_ai.sh."
+
+    if [[ -z "${TEMP_DIR}" ]]; then
+        TEMP_DIR="$(mktemp -d)"
+    fi
+
+    local generated_modelfile="${TEMP_DIR}/Modelfile"
+    awk -v model="${MODEL_NAME}" \
+        'NR == 1 { print "FROM " model; next } { print }' \
+        "${SCRIPT_DIR}/Modelfile" > "${generated_modelfile}"
+
+    "${OLLAMA_BIN}" create "${CUSTOM_MODEL_NAME}" -f "${generated_modelfile}"
+    ACTIVE_MODEL_NAME="${CUSTOM_MODEL_NAME}"
+    success "Custom model is ready: ${CUSTOM_MODEL_NAME}"
+}
+
 run_model() {
-    printf '\n%s\n' "Starting local chat. Enter /bye to exit."
-    exec "${OLLAMA_BIN}" run "${MODEL_NAME}"
+    printf '\nStarting local chat with %s. Enter /bye to exit.\n' \
+        "${ACTIVE_MODEL_NAME}"
+    exec "${OLLAMA_BIN}" run "${ACTIVE_MODEL_NAME}"
 }
 
 main() {
     parse_args "$@"
+    ACTIVE_MODEL_NAME="${MODEL_NAME}"
 
     printf '%s\n' \
         "============================================================" \
@@ -195,11 +240,18 @@ main() {
     start_llm_service
     pull_model
 
+    if [[ "${CREATE_CUSTOM_MODEL}" == true ]]; then
+        create_custom_model
+    else
+        log "[6/6] Skipping Modelfile customization (--base-only)"
+    fi
+
     if [[ "${START_CHAT}" == true ]]; then
         run_model
     else
         success "Setup completed without starting chat (--no-chat)."
-        printf 'Run later with: %q run %q\n' "${OLLAMA_BIN}" "${MODEL_NAME}"
+        printf 'Run later with: %q run %q\n' \
+            "${OLLAMA_BIN}" "${ACTIVE_MODEL_NAME}"
     fi
 }
 
