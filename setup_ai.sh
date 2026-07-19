@@ -2,13 +2,14 @@
 
 set -Eeuo pipefail
 
-readonly DEFAULT_MODEL="dolphin3:8b"
+readonly DEFAULT_MODEL="hf.co/mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated-GGUF:Q4_K_M"
+readonly DOLPHIN_MODEL="dolphin3:8b"
 readonly OLLAMA_URL="http://127.0.0.1:11434"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 readonly SCRIPT_DIR
 
 MODEL_NAME="${MODEL_NAME:-${DEFAULT_MODEL}}"
-CUSTOM_MODEL_NAME="${CUSTOM_MODEL_NAME:-my-dolphin}"
+CUSTOM_MODEL_NAME="${CUSTOM_MODEL_NAME:-my-local-llm}"
 START_CHAT=true
 CREATE_CUSTOM_MODEL=true
 ACTIVE_MODEL_NAME=""
@@ -40,11 +41,12 @@ print_help() {
     cat <<'HELP'
 Usage: ./setup_ai.sh [options]
 
-Install Ollama, download Dolphin, create a direct-response custom model, and chat.
+Install Ollama, download a low-refusal model, customize its response style, and chat.
 
 Options:
-  --model NAME        Base Ollama model (default: dolphin3:8b)
-  --custom-name NAME  Custom model name (default: my-dolphin)
+  --model NAME        Base Ollama/Hugging Face model
+  --dolphin           Use dolphin3:8b instead of the abliterated default
+  --custom-name NAME  Custom model name (default: my-local-llm)
   --base-only         Skip Modelfile customization and run the base model
   --no-chat           Complete setup without opening interactive chat
   -h, --help          Show this help
@@ -56,6 +58,7 @@ Environment:
 Examples:
   ./setup_ai.sh
   ./setup_ai.sh --no-chat
+  ./setup_ai.sh --dolphin
   ./setup_ai.sh --model dolphin-llama3:8b
   ./setup_ai.sh --custom-name private-dolphin
   ./setup_ai.sh --base-only
@@ -70,6 +73,10 @@ parse_args() {
                 (($# >= 2)) || fail "--model requires a model name."
                 MODEL_NAME="$2"
                 shift 2
+                ;;
+            --dolphin)
+                MODEL_NAME="${DOLPHIN_MODEL}"
+                shift
                 ;;
             --custom-name)
                 (($# >= 2)) || fail "--custom-name requires a model name."
@@ -231,7 +238,7 @@ main() {
 
     printf '%s\n' \
         "============================================================" \
-        " Apple Silicon local LLM setup with Ollama + Dolphin" \
+        " Apple Silicon local LLM setup with Ollama" \
         "============================================================"
 
     check_platform
