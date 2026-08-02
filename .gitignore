@@ -2,3 +2,6 @@
 .idea/
 .vscode/
 *.log
+.agents-venv/
+agents/__pycache__/
+agents/output/
