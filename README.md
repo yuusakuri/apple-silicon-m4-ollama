@@ -1,21 +1,6 @@
 # Apple Silicon M4 Local LLM with Ollama
 
-Apple Silicon Mac に Ollama と低拒否傾向のローカル LLM を導入する Bash スクリプトです。既定ではアブリテレーション済み Llama 3.1 8B を使い、Dolphin 系モデルにも切り替えられます。処理を関数単位に分け、再実行しても既存の Homebrew / Ollama を再インストールしない構成にしています。
-
-> [!IMPORTANT]
-> 「ローカル」は、推論データを外部 API に送らないという意味です。Homebrew、Ollama、モデルの初回ダウンロードにはインターネット接続が必要です。モデルの出力には誤りや不適切な内容が含まれ得るため、利用者が確認してください。
-
-## できること
-
-- macOS 14 以上・Apple Silicon (`arm64`) であることを確認
-- Homebrew がなければ公式インストーラーから導入
-- Ollama を Homebrew Cask で導入
-- Ollama のローカル API が応答するまで待機
-- Hugging Face から量子化済みアブリテレーションモデルを直接取得
-- `Modelfile` から `my-local-llm` を作成
-- 直接的に回答するカスタムシステムプロンプトで対話を開始
-- `--dolphin` / `--model` でベースモデル変更、`--base-only` でカスタム作成を省略
-- `--no-chat` でモデル作成まで実行
+Apple Silicon Mac に Ollama と拒否傾向を抑えたローカル LLM を導入する `run.sh` です。会話、Webクロール、ブラウザ操作、画像認識、Mac操作、Androidからのリモート利用を1つの入口にまとめています。
 
 ## 必要環境
 
@@ -24,46 +9,160 @@ Apple Silicon Mac に Ollama と低拒否傾向のローカル LLM を導入す�
 - 既定モデル用に 16GB 以上のユニファイドメモリを推奨
 - モデルとキャッシュ用の空きディスク容量
 
-## クイックスタート
-
-```bash
-git clone https://github.com/yuusakuri/apple-silicon-m4-ollama.git
-cd apple-silicon-m4-ollama
-chmod +x setup_ai.sh
-./setup_ai.sh
-```
-
-既定のベースモデルは `hf.co/mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated-GGUF:Q4_K_M` です。初回は約 4.92GB のモデルデータをダウンロードし、同じモデルデータを再利用する `my-local-llm` を作って起動します。対話を終えるには `/bye` を入力します。
-
 ## 使い方
 
+### 初回セットアップと起動
+
+新規に取得する場合は、次を Bash で実行します。
+`run.sh setup` は Homebrew / Ollama、ローカルモデル、各エージェント、公式Tailscaleをまとめてセットアップします。既定構成のモデルは約15GBです。TailscaleのインストールではmacOSの管理者パスワードが必要です。
+
 ```bash
-# セットアップ、モデル取得、チャット開始
-./setup_ai.sh
+set -Eeuo pipefail
 
-# モデル取得まで行い、チャットは開始しない
-./setup_ai.sh --no-chat
+git clone https://github.com/yuusakuri/apple-silicon-m4-ollama.git
+cd apple-silicon-m4-ollama
+chmod +x run.sh
+./run.sh setup
+./run.sh start
+```
+Macで [http://127.0.0.1:8787](http://127.0.0.1:8787) を開きます。既定のベースモデルは `hf.co/mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated-GGUF:Q4_K_M` です。
 
-# Dolphin 3 をベースにする
-./setup_ai.sh --dolphin
+### セットアップ済みの環境で起動
 
-# 元の Dolphin Llama 3 8B をベースにする
-./setup_ai.sh --model dolphin-llama3:8b
-
-# カスタムモデルに別名を付ける
-./setup_ai.sh --custom-name private-dolphin
-
-# Modelfile を使わずベースモデルをそのまま起動
-./setup_ai.sh --base-only
-
-# 32GB 以上の Mac で大きなモデルを試す
-./setup_ai.sh --model dolphin-mixtral:8x7b
-
-# 環境変数でも指定可能
-MODEL_NAME=dolphin3:8b ./setup_ai.sh
+```bash
+./run.sh start
 ```
 
-利用可能なオプションは `./setup_ai.sh --help` で確認できます。
+### オプション
+
+```bash
+# セットアップ後すぐにチャットを開く
+./run.sh setup-ai
+
+# モデル取得と作成のみ行う
+./run.sh setup-ai --no-chat
+
+# Dolphin 3 をベースモデルにする
+./run.sh setup-ai --dolphin
+
+# ベースモデルを直接指定する
+./run.sh setup-ai --model dolphin-llama3:8b
+
+# カスタムモデルに別名を付ける
+./run.sh setup-ai --custom-name private-dolphin
+
+# Modelfile を使わずベースモデルをそのまま起動
+./run.sh setup-ai --base-only
+
+# 32GB 以上の Mac で大きなモデルを試す
+./run.sh setup-ai --model dolphin-mixtral:8x7b
+
+# 環境変数でベースモデルを指定
+MODEL_NAME=dolphin3:8b ./run.sh setup-ai
+```
+使えるコマンドは `./run.sh help`、モデルのオプションは `./run.sh setup-ai --help` で確認できます。
+
+### Webクロール、ブラウザ操作、画像認識、Mac操作
+
+Crawl4AI、browser-use、画像認識用の `gemma3:4b`、Mac操作用の `qwen3-vl:8b` を追加する場合は、次を実行します。
+
+```bash
+./run.sh setup-agents
+```
+
+Webクロール:
+
+```bash
+source .agents-venv/bin/activate
+crwl https://example.com -o markdown
+crwl https://example.com --deep-crawl bfs --max-pages 10 -o markdown
+```
+
+ブラウザ操作:
+
+```bash
+source .agents-venv/bin/activate
+python agents/browser_agent.py \
+  'ニュースサイトを開き、今日の主要ニュースを5件まとめて'
+```
+
+画像・スクリーンショット認識:
+
+```bash
+screencapture -x /tmp/current-screen.png
+python agents/vision.py /tmp/current-screen.png \
+  '画面に表示されている要素と、次に操作できる候補を箇条書きで返して'
+```
+
+Mac操作:
+
+```bash
+source .agents-venv/bin/activate
+python agents/mac_agent.py \
+  'Safari を開き、https://example.com を表示して'
+```
+
+### 統合コンソール
+
+会話、クロール、ブラウザ、画像認識、Mac操作を1つのWeb画面から実行します。初回セットアップ後は次の1コマンドで起動できます。
+
+```bash
+./run.sh start
+```
+
+Macで [http://127.0.0.1:8787](http://127.0.0.1:8787) を開きます。通常の質問はそのまま入力し、次のように先頭へ用途を書くと自動判定します。
+
+```text
+クロール https://example.com
+ブラウザ https://example.com を開いて内容を要約して
+Mac Safari を開いて https://example.com を表示して
+```
+
+画像を添付すると画像認識になります。画面の選択メニューから用途を固定することもできます。
+
+### Androidから開く
+
+AndroidからMacの統合コンソールを操作します。初回はローカルエージェントと公式Tailscaleをセットアップします。
+
+```bash
+./run.sh setup
+```
+
+TailscaleアプリでVPN拡張を許可し、MacとAndroidに同じアカウントでログインしたあと、Macで次を実行します。
+
+```bash
+./run.sh remote
+```
+
+初回はTailscaleのログインとHTTPS有効化をブラウザで完了します。表示された `https://<Mac名>.<tailnet名>.ts.net` をAndroidのブラウザで開きます。終了する場合はMac側で `Ctrl+C` を押します。
+
+### ログイン時に自動起動
+
+手動で実行中の `./run.sh remote` を `Ctrl+C` で終了してから、次を1回実行します。
+
+```bash
+./run.sh enable-autostart
+```
+
+AIコンソールはMacへのログイン時に起動し、Tailscale Serveはバックグラウンドで再開します。通常は同じ `https://<Mac名>.<tailnet名>.ts.net` を引き続き使用できます。
+
+自動起動とTailscale Serveを停止する場合:
+
+```bash
+./run.sh disable-autostart
+```
+
+### API から実行
+
+```bash
+curl http://127.0.0.1:11434/api/chat \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "my-local-llm",
+    "messages": [{"role": "user", "content": "こんにちは"}],
+    "stream": false
+  }'
+```
 
 ## モデル選択の目安
 
@@ -74,76 +173,8 @@ MODEL_NAME=dolphin3:8b ./setup_ai.sh
 | `dolphin-llama3:8b` | 約 4.7GB | 16GB 以上 | Dolphin 2.9 / Llama 3 ベース |
 | `dolphin-mixtral:8x7b` | 約 26GB | 32GB 以上 | より大きな MoE モデル。余裕のある M4 Pro / Max 向け |
 | `dolphin-llama3:70b` | 約 40GB | 64GB 以上推奨 | 高容量 Mac 向け |
-
-実際のメモリ使用量はコンテキスト長などで増えます。メモリの目安は余裕を含めた実用上の推奨で、モデルファイルのサイズと同じではありません。
-
-## アブリテレーションを既定にした理由
-
-アブリテレーションは、拒否するプロンプトと応答するプロンプトの内部表現の差から拒否に関連する方向を推定し、その成分をモデルの重みから抑える手法です。プロンプトだけで口調を変えるより、拒否傾向を下げる効果は直接的です。
-
-このリポジトリでは次のモデルと量子化を明示指定します。
-
-```bash
-ollama run hf.co/mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated-GGUF:Q4_K_M
-```
-
-この候補を選んだ理由は次のとおりです。
-
-- Hugging Face の Ollama 公式ガイドに実行例として掲載されている
-- Llama 3 より新しい Llama 3.1 8B Instruct がベース
-- M4 の 16GB 構成でも扱いやすい `Q4_K_M` が明示されている
-- モデルページで GGUF ファイルと約 4.92GB のサイズを確認できる
-
-提示された FailSpy 版も次のコマンドで試せます。
-
-```bash
-./setup_ai.sh \
-  --model hf.co/FailSpy/Meta-Llama-3-8B-Instruct-abliterated-v3-GGUF
-```
-
-ただし、アブリテレーションでも拒否がゼロになる保証はありません。FailSpy のモデルカードも、拒否・誤解・倫理的な説教が残る可能性を明記しています。また、重み編集や量子化による品質低下・予期しない癖もあり得ます。「最も確実」は絶対保証ではなく、このリポジトリでは「プロンプトだけに頼るより再現性が高い」という意味です。
-
-## `Modelfile` で応答スタイルをさらに調整する
-
-Dolphin やアブリテレーション済みモデルでも、質問や会話履歴によっては拒否的な応答を返します。生成は確率的であり、ファインチューニング、重み編集、プロンプトテンプレート、システムメッセージなど複数の要素が結果に影響するためです。
-
-このリポジトリの [`Modelfile`](Modelfile) は、回答を直接的・具体的にし、不必要な説教や定型的な前置きを避けるよう指示します。`setup_ai.sh` は選択したベースモデルに `FROM` を自動で合わせ、`my-local-llm` を作ります。ベースのモデルデータを再利用するため、同じ重みをもう一度ダウンロードする必要はありません。
-
-手動で作成する場合は次のとおりです。
-
-```bash
-ollama pull hf.co/mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated-GGUF:Q4_K_M
-ollama create my-local-llm -f Modelfile
-ollama run my-local-llm
-```
-
-`Modelfile` の `SYSTEM` はモデルに渡すシステムメッセージであり、「絶対的なルール」ではありません。拒否を完全に消す保証はなく、`SYSTEM "."` のように内容を空同然にしても同様です。期待する口調や応答例を具体的に書き、実際の用途で評価してください。
-
-## 手動実行
-
-セットアップ済みなら次のコマンドだけで起動できます。
-
-```bash
-ollama run my-local-llm
-```
-
-Ollama の API は標準ではローカルの `http://127.0.0.1:11434` で利用できます。
-
-```bash
-curl http://127.0.0.1:11434/api/chat \
-  -d '{
-    "model": "my-local-llm",
-    "messages": [{"role": "user", "content": "こんにちは"}],
-    "stream": false
-  }'
-```
-
-## セキュリティと責任ある利用
-
-- Dolphin は強い指示追従性を意図したモデルです。「無検閲」は、正確性・合法性・安全性を保証する言葉ではありません。
-- 出力を医療・法律・金融・セキュリティなどの重要判断にそのまま使わないでください。
-- 機密データを扱う場合は、Ollama の待受アドレスを外部公開していないことも確認してください。
-- モデルごとのライセンスと、利用地域の法令・組織の規則に従ってください。
+| `gemma3:4b` | 約 3.3GB | 8GB 以上 | 統合コンソールの画像認識用 |
+| `qwen3-vl:8b` | 約 6.1GB | 16GB 以上 | 統合コンソールのMac操作用 |
 
 ## トラブルシューティング
 
@@ -153,30 +184,29 @@ Homebrew のインストール完了時に表示される `shellenv` の手順�
 
 ### Ollama が 60 秒以内に起動しない
 
-Ollama アプリを一度手動で開き、macOS の確認ダイアログに応答してください。ログは `~/.ollama/logs/server.log` にあります。
+```bash
+brew services info ollama
+tail -n 100 "$(brew --prefix)/var/log/ollama.log"
+brew services restart ollama
+```
 
 ### メモリ不足になる
 
 `dolphin3:8b` または `dolphin-llama3:8b` を選び、他のメモリ使用量が多いアプリを終了してください。コンテキスト長を大きくすると必要メモリも増えます。
 
-## 開発時の確認
+### `Connecting the Mac to Tailscale` で止まる
 
-```bash
-bash -n setup_ai.sh
-shellcheck setup_ai.sh
-```
+現在の実行を `Ctrl+C` で終了します。システム設定の「一般」→「ログイン項目と機能拡張」→「ネットワーク機能拡張」で情報ボタンを開き、Tailscale Network Extensionをオンにします。Touch IDまたは管理者パスワードで承認し、VPN構成の追加を許可したあと、メニューバーのTailscaleからログインして `./run.sh remote` を再実行します。
 
 ## 参考資料
 
 - [Ollama: macOS](https://docs.ollama.com/macos)
-- [Ollama: Modelfile reference](https://docs.ollama.com/modelfile)
 - [Hugging Face: Ollama で GGUF を実行](https://huggingface.co/docs/hub/en/ollama)
 - [既定のアブリテレーション済み Llama 3.1 8B GGUF](https://huggingface.co/mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated-GGUF)
-- [FailSpy の Llama 3 8B abliterated v3 GGUF](https://huggingface.co/FailSpy/Meta-Llama-3-8B-Instruct-abliterated-v3-GGUF)
 - [Ollama: dolphin3](https://ollama.com/library/dolphin3)
 - [Ollama: dolphin-llama3](https://ollama.com/library/dolphin-llama3)
 - [Ollama: dolphin-mixtral](https://ollama.com/library/dolphin-mixtral)
-
-## License
-
-このリポジトリのスクリプトとドキュメントは [MIT License](LICENSE) で公開しています。各モデルには別のライセンスが適用されます。
+- [Ollama: gemma3](https://ollama.com/library/gemma3)
+- [Ollama: qwen3-vl](https://ollama.com/library/qwen3-vl)
+- [Tailscale: macOSへのインストール](https://tailscale.com/docs/install/mac)
+- [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve)
